@@ -12,6 +12,13 @@ on:
     # Every Monday 03:15 UTC: check whether a new upstream release is out.
     - cron: "15 3 * * 1"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: >-
+          Additional image tag to publish (e.g. release-5.2.3.11). The 'latest'
+          tag and the upstream version tag are always published.
+        required: false
+        type: string
 
 env:
   IMAGE: ghcr.io/er1c-zh/qbittorrent-enhanced
@@ -61,6 +68,19 @@ jobs:
             echo "skip_build=false" >> "${GITHUB_OUTPUT}"
           fi
 
+      - name: Assemble image tags
+        id: tags
+        run: |
+          {
+            echo "tags=${IMAGE}:latest"
+            echo "tags=${IMAGE}:${{ steps.upstream.outputs.tag }}"
+            if [ -n "${{ inputs.release_tag }}" ]; then
+              echo "tags=${IMAGE}:${{ inputs.release_tag }}"
+            fi
+          } >> "${GITHUB_OUTPUT}"
+        env:
+          IMAGE: ${{ env.IMAGE }}
+
       - name: Build and push image
         if: ${{ github.event_name != 'schedule' || steps.published.outputs.skip_build != 'true' }}
         uses: docker/build-push-action@v6
@@ -70,8 +90,6 @@ jobs:
           platforms: linux/amd64
           build-args: QBT_VERSION=${{ steps.upstream.outputs.tag }}
           push: true
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ steps.upstream.outputs.tag }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

@@ -17,7 +17,8 @@ monitoring and custom UI are later phases (see [Roadmap](#roadmap)).
 | --- | --- |
 | GitHub Container Registry | `ghcr.io/er1c-zh/qbittorrent-enhanced` |
 
-Tags: `latest`, plus one per upstream release (e.g. `release-5.2.3.10`).
+Tags: `latest`, the upstream release (e.g. `release-5.2.3.10`), plus image
+release tags such as `release-5.2.3.11` (see [Release history](#release-history)).
 
 ## Quick start
 
@@ -87,13 +88,36 @@ WebUI from then on.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `PUID` | `1000` | User ID the daemon runs as; volume contents are chowned to it |
-| `PGID` | `1000` | Group ID the daemon runs as |
+| `PUID` | `1000` | User ID the `qbittorrent` runtime user is created with and the daemon runs as |
+| `PGID` | `1000` | Group ID the `qbittorrent` runtime user is created with and the daemon runs as |
 | `TZ` | `UTC` | Container timezone (IANA name, e.g. `Asia/Shanghai`) |
 
-The daemon runs as an unprivileged user. If you already mounted volumes owned by
-another UID/GID, set `PUID`/`PGID` to match (ownership is fixed only when it
-differs, so large download trees are not rescanned on every start).
+### Runtime user handling
+
+On startup the container manages a real `qbittorrent` account:
+
+- the group and user are **created or remapped** to the requested `PUID`/`PGID`
+  (entries are guaranteed in `/etc/passwd` and `/etc/group`);
+- the daemon is then launched **as that user via `gosu`** and becomes PID 1,
+  so it receives signals directly and shuts down cleanly;
+- `/config` and `/downloads` are made writable by the runtime user — recursively
+  only when ownership actually differs, so large existing download trees are not
+  rescanned on every start.
+
+Changing `PUID`/`PGID` after the first run remaps the user and updates the
+ownership of both volumes on the next start, which is how you adopt volumes that
+were previously owned by another UID/GID.
+
+### Migration / compatibility
+
+- Volumes and paths are unchanged: `/config`, `/downloads`, and the config file
+  `/config/qBittorrent/config/qBittorrent.conf` are identical to the previous
+  release, so existing mounts and settings carry over untouched.
+- `release-5.2.3.11` replaces the earlier numeric-only privilege drop (which
+  could crash the daemon immediately at startup on some hosts) with a real
+  runtime user. No compose/config changes are required to upgrade.
+- `CMD`, the WebUI port default (`8080`), the listening port (`6881`) and the
+  default save path (`/downloads`) are unchanged.
 
 ## Local build
 
@@ -114,7 +138,12 @@ gh api repos/c0re100/qBittorrent-Enhanced-Edition/releases/latest --jq .tag_name
 - on **push** to `main` when image files change;
 - on a **weekly schedule** — resolves the latest upstream release, skips if that
   version is already published, otherwise builds and retags `latest`;
-- on **manual dispatch** (`workflow_dispatch`).
+- on **manual dispatch** (`workflow_dispatch`) — optionally pass a `release_tag`
+  (e.g. `release-5.2.3.11`) to additionally publish that image tag:
+
+```bash
+gh workflow run build.yml -f release_tag=release-5.2.3.11
+```
 
 Multi-platform builds are prepared in the `Dockerfile` (x86_64, aarch64, armv7,
 i686, loongarch64 map to upstream static assets) and are gated to
@@ -124,6 +153,15 @@ i686, loongarch64 map to upstream static assets) and are gated to
 > GHCR. This package was set to public once so unauthenticated pulls work. If
 > you fork this repository, set your own package's visibility to public once
 > from the package settings page.
+
+## Release history
+
+- **`release-5.2.3.11`** — runtime user handling fix. The daemon now runs under a
+  real `qbittorrent` user (LinuxServer-style `PUID`/`PGID` + `gosu`) instead
+  of a numeric-only privilege drop that crashed at startup on some hosts. Added
+  startup diagnostics to the entrypoint (`set -eux`). Bundled binary: upstream
+  `release-5.2.3.10` (unchanged). Volumes, config path and defaults unchanged.
+- **`release-5.2.3.10`** — initial Phase 1 image.
 
 ## Roadmap
 
