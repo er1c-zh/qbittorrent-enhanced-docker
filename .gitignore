@@ -1,0 +1,7 @@
+# Local compose volumes
+config/
+downloads/
+
+# Misc
+.DS_Store
+*.log

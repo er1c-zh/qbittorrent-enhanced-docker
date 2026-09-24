@@ -1,0 +1,88 @@
+name: Build & Publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - entrypoint.sh
+      - healthcheck.sh
+      - .github/workflows/**
+  schedule:
+    # Every Monday 03:15 UTC: check whether a new upstream release is out.
+    - cron: "15 3 * * 1"
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/er1c-zh/qbittorrent-enhanced
+  UPSTREAM_REPO: c0re100/qBittorrent-Enhanced-Edition
+
+concurrency:
+  group: build-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve latest upstream release
+        id: upstream
+        run: |
+          tag="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq '.tag_name')"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved upstream tag: ${tag}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Scheduled runs only: skip when this upstream version was already built.
+      - name: Skip if version already published
+        if: github.event_name == 'schedule'
+        id: published
+        run: |
+          if docker manifest inspect "${IMAGE}:${{ steps.upstream.outputs.tag }}" >/dev/null 2>&1; then
+            echo "skip_build=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "skip_build=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Build and push image
+        if: ${{ github.event_name != 'schedule' || steps.published.outputs.skip_build != 'true' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          build-args: QBT_VERSION=${{ steps.upstream.outputs.tag }}
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ steps.upstream.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Best-effort: keep the GHCR package public so unauthenticated pulls work.
+      - name: Ensure GHCR package is public
+        if: ${{ github.event_name != 'schedule' || steps.published.outputs.skip_build != 'true' }}
+        continue-on-error: true
+        run: |
+          gh api --method POST "user/packages/container/qbittorrent-enhanced/visibility" \
+            -f visibility=public --jq '.visibility' \
+            || echo "package visibility update skipped"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
