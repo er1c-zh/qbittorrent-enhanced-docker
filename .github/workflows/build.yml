@@ -76,12 +76,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Best-effort: keep the GHCR package public so unauthenticated pulls work.
+      # Best-effort: GHCR user-scoped packages default to private; flip it to
+      # public so unauthenticated pulls work. A repo-scoped GITHUB_TOKEN is not
+      # always allowed to do this, so failures are tolerated (the maintainer can
+      # also change visibility once from the package settings page).
       - name: Ensure GHCR package is public
         if: ${{ github.event_name != 'schedule' || steps.published.outputs.skip_build != 'true' }}
         continue-on-error: true
         run: |
-          gh api --method POST "user/packages/container/qbittorrent-enhanced/visibility" \
+          gh api --method PATCH "user/packages/container/qbittorrent-enhanced" \
             -f visibility=public --jq '.visibility' \
             || echo "package visibility update skipped"
         env:
