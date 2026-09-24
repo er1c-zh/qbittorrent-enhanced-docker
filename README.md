@@ -120,6 +120,11 @@ Multi-platform builds are prepared in the `Dockerfile` (x86_64, aarch64, armv7,
 i686, loongarch64 map to upstream static assets) and are gated to
 `linux/amd64` in CI for now.
 
+> Note: container packages scoped to a personal account default to *private* on
+> GHCR. This package was set to public once so unauthenticated pulls work. If
+> you fork this repository, set your own package's visibility to public once
+> from the package settings page.
+
 ## Roadmap
 
 - [x] Phase 1: repository structure, Docker build system, GitHub Actions CI, basic runtime image
